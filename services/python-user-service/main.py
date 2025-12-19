@@ -17,8 +17,14 @@ import nats
 import asyncio
 from datetime import datetime
 from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 
-# Configure JSON logging with trace context
+# Configure JSON logging with trace context FIRST (before using logger)
 class JSONFormatter(logging.Formatter):
     def format(self, record):
         log_data = {
@@ -43,6 +49,23 @@ logging.basicConfig(
     handlers=[handler]
 )
 logger = logging.getLogger(__name__)
+
+# Initialize OpenTelemetry tracing
+def init_telemetry():
+    resource = Resource(attributes={
+        "service.name": os.getenv("OTEL_SERVICE_NAME", "user-service"),
+    })
+    
+    provider = TracerProvider(resource=resource)
+    otlp_exporter = OTLPSpanExporter(
+        endpoint=os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://tempo:4317"),
+        insecure=True
+    )
+    provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+    trace.set_tracer_provider(provider)
+    logger.info(f"OpenTelemetry initialized with endpoint: {os.getenv('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', 'http://tempo:4317')}")
+
+init_telemetry()
 
 # Database setup
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://demo:demo123@localhost:5432/demo")
@@ -118,6 +141,11 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# Instrument FastAPI and SQLAlchemy
+FastAPIInstrumentor.instrument_app(app)
+SQLAlchemyInstrumentor().instrument(engine=engine)
+logger.info("FastAPI and SQLAlchemy instrumentation enabled")
 
 # Dependency to get database session
 def get_db():

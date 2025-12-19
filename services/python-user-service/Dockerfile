@@ -12,10 +12,5 @@ COPY main.py .
 # Expose port
 EXPOSE 8000
 
-# Run with OpenTelemetry auto-instrumentation
-CMD ["opentelemetry-instrument", \
-     "--traces_exporter", "otlp", \
-     "--metrics_exporter", "none", \
-     "--logs_exporter", "none", \
-     "--service_name", "user-service", \
-     "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run application directly (OpenTelemetry initialized in code)
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

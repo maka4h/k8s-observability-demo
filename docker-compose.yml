@@ -129,9 +129,13 @@ services:
       DATABASE_URL: postgresql://demo:demo123@postgres:5432/demo
       NATS_URL: nats://nats:4222
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4317
       OTEL_SERVICE_NAME: user-service
       OTEL_TRACES_SAMPLER: parentbased_traceidratio
       OTEL_TRACES_SAMPLER_ARG: "1.0"
+      OTEL_RESOURCE_ATTRIBUTES: service.name=user-service
+      OTEL_LOG_LEVEL: debug
+      OTEL_PYTHON_LOG_LEVEL: debug
       LOG_LEVEL: INFO
     ports:
       - "8000:8000"

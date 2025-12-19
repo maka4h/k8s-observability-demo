@@ -7,6 +7,7 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     editable: true
+    uid: prometheus
 
   - name: Loki
     type: loki
@@ -20,7 +21,6 @@ datasources:
           matcherRegex: '"trace_id":"([0-9a-f]+)"'
           name: TraceID
           url: '$${__value.raw}'
-          urlDisplayLabel: 'View Trace'
 
   - name: Tempo
     type: tempo
@@ -30,23 +30,24 @@ datasources:
     uid: tempo
     jsonData:
       tracesToLogs:
-        datasourceUid: 'loki'
-        tags: ['job', 'container']
-        mappedTags: [{ key: 'service.name', value: 'job' }]
+        datasourceUid: loki
+        tags:
+          - job
+          - container
+        mappedTags:
+          - key: service.name
+            value: job
         mapTagNamesEnabled: true
-        spanStartTimeShift: '-1m'
-        spanEndTimeShift: '1m'
+        spanStartTimeShift: -1m
+        spanEndTimeShift: 1m
         filterByTraceID: true
         filterBySpanID: false
-        lokiSearch: true
       tracesToMetrics:
-        datasourceUid: 'prometheus'
-        tags: [{ key: 'service.name', value: 'job' }]
+        datasourceUid: prometheus
+        tags:
+          - key: service.name
+            value: job
       serviceMap:
-        datasourceUid: 'prometheus'
+        datasourceUid: prometheus
       nodeGraph:
         enabled: true
-      search:
-        hide: false
-      lokiSearch:
-        datasourceUid: 'loki'
