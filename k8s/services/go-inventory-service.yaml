@@ -1,0 +1,91 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-inventory-service
+  namespace: demo
+  labels:
+    app: go-inventory-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: go-inventory-service
+  template:
+    metadata:
+      labels:
+        app: go-inventory-service
+    spec:
+      containers:
+      - name: inventory-service
+        image: go-inventory-service:latest
+        imagePullPolicy: Never  # For local development
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://demo:demo123@postgres.demo.svc.cluster.local:5432/demo?sslmode=disable"
+        - name: MONGODB_URI
+          value: "mongodb://demo:demo123@mongodb.demo.svc.cluster.local:27017"
+        - name: MONGODB_DATABASE
+          value: "demo"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "tempo.observability.svc.cluster.local:4317"
+        - name: OTEL_SERVICE_NAME
+          value: "inventory-service"
+        - name: GIN_MODE
+          value: "release"
+        - name: LOG_LEVEL
+          value: "info"
+        ports:
+        - containerPort: 8002
+          name: http
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-inventory-service
+  namespace: demo
+  labels:
+    app: go-inventory-service
+spec:
+  selector:
+    app: go-inventory-service
+  ports:
+  - port: 8002
+    targetPort: 8002
+    name: http
+  type: ClusterIP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: go-inventory-service
+  namespace: demo
+  labels:
+    app: go-inventory-service
+spec:
+  selector:
+    matchLabels:
+      app: go-inventory-service
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s

@@ -1,0 +1,91 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: python-user-service
+  namespace: demo
+  labels:
+    app: python-user-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: python-user-service
+  template:
+    metadata:
+      labels:
+        app: python-user-service
+    spec:
+      containers:
+      - name: user-service
+        image: python-user-service:latest
+        imagePullPolicy: Never  # For local development
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://demo:demo123@postgres.demo.svc.cluster.local:5432/demo"
+        - name: NATS_URL
+          value: "nats://nats.demo.svc.cluster.local:4222"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://tempo.observability.svc.cluster.local:4317"
+        - name: OTEL_SERVICE_NAME
+          value: "user-service"
+        - name: OTEL_TRACES_SAMPLER
+          value: "parentbased_traceidratio"
+        - name: OTEL_TRACES_SAMPLER_ARG
+          value: "1.0"
+        - name: LOG_LEVEL
+          value: "INFO"
+        ports:
+        - containerPort: 8000
+          name: http
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: python-user-service
+  namespace: demo
+  labels:
+    app: python-user-service
+spec:
+  selector:
+    app: python-user-service
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+  type: ClusterIP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: python-user-service
+  namespace: demo
+  labels:
+    app: python-user-service
+spec:
+  selector:
+    matchLabels:
+      app: python-user-service
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s

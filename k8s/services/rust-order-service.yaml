@@ -1,0 +1,89 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rust-order-service
+  namespace: demo
+  labels:
+    app: rust-order-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rust-order-service
+  template:
+    metadata:
+      labels:
+        app: rust-order-service
+    spec:
+      containers:
+      - name: order-service
+        image: rust-order-service:latest
+        imagePullPolicy: Never  # For local development
+        env:
+        - name: MONGODB_URI
+          value: "mongodb://demo:demo123@mongodb.demo.svc.cluster.local:27017"
+        - name: MONGODB_DATABASE
+          value: "demo"
+        - name: NATS_URL
+          value: "nats://nats.demo.svc.cluster.local:4222"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://tempo.observability.svc.cluster.local:4317"
+        - name: OTEL_SERVICE_NAME
+          value: "order-service"
+        - name: RUST_LOG
+          value: "info"
+        ports:
+        - containerPort: 8001
+          name: http
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rust-order-service
+  namespace: demo
+  labels:
+    app: rust-order-service
+spec:
+  selector:
+    app: rust-order-service
+  ports:
+  - port: 8001
+    targetPort: 8001
+    name: http
+  type: ClusterIP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rust-order-service
+  namespace: demo
+  labels:
+    app: rust-order-service
+spec:
+  selector:
+    matchLabels:
+      app: rust-order-service
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
