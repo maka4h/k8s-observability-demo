@@ -1,5 +1,6 @@
 import os
 import logging
+import json
 from typing import List, Optional
 from contextlib import asynccontextmanager
 
@@ -15,11 +16,31 @@ from fastapi import Response
 import nats
 import asyncio
 from datetime import datetime
+from opentelemetry import trace
 
-# Configure logging
+# Configure JSON logging with trace context
+class JSONFormatter(logging.Formatter):
+    def format(self, record):
+        log_data = {
+            'timestamp': self.formatTime(record, self.datefmt),
+            'level': record.levelname,
+            'message': record.getMessage(),
+            'logger': record.name,
+        }
+        
+        # Add trace context if available
+        span = trace.get_current_span()
+        if span.get_span_context().is_valid:
+            log_data['trace_id'] = format(span.get_span_context().trace_id, '032x')
+            log_data['span_id'] = format(span.get_span_context().span_id, '016x')
+        
+        return json.dumps(log_data)
+
+handler = logging.StreamHandler()
+handler.setFormatter(JSONFormatter())
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    handlers=[handler]
 )
 logger = logging.getLogger(__name__)
 

@@ -1,0 +1,82 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Docker container logs
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # Only scrape containers from the observability-demo network
+      - source_labels: ['__meta_docker_network_name']
+        regex: 'observability-demo'
+        action: keep
+      
+      # Extract container name
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+      
+      # Extract service name from container name
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/.*-(.*)-.*'
+        target_label: 'service'
+        replacement: '${1}'
+      
+      # Set job label based on service
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/.*(python-user-service).*'
+        target_label: 'job'
+        replacement: 'user-service'
+      
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/.*(rust-order-service).*'
+        target_label: 'job'
+        replacement: 'order-service'
+      
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/.*(go-inventory-service).*'
+        target_label: 'job'
+        replacement: 'inventory-service'
+      
+      # Add namespace label
+      - target_label: 'namespace'
+        replacement: 'demo'
+      
+      # Set the log path
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'stream'
+    
+    # Pipeline stages to parse logs
+    pipeline_stages:
+      # Parse JSON logs (all services output structured JSON)
+      - json:
+          expressions:
+            level: level
+            message: message
+            timestamp: timestamp
+            trace_id: trace_id
+            span_id: span_id
+      
+      # Extract trace_id for correlation with Tempo
+      - labels:
+          trace_id:
+          span_id:
+          level:
+      
+      # Set timestamp from log entry
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+      
+      # Output formatting
+      - output:
+          source: message

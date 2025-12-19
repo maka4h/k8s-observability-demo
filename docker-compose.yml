@@ -73,8 +73,8 @@ services:
   promtail:
     image: grafana/promtail:latest
     volumes:
-      - /var/log:/var/log
-      - ./k8s/observability/promtail-config.yaml:/etc/promtail/config.yaml
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./promtail-docker-config.yaml:/etc/promtail/config.yaml
     command: -config.file=/etc/promtail/config.yaml
     depends_on:
       - loki

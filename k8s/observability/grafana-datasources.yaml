@@ -13,12 +13,14 @@ datasources:
     access: proxy
     url: http://loki:3100
     editable: true
+    uid: loki
     jsonData:
       derivedFields:
         - datasourceUid: tempo
-          matcherRegex: "traceID=(\\w+)"
+          matcherRegex: '"trace_id":"([0-9a-f]+)"'
           name: TraceID
-          url: "$${__value.raw}"
+          url: '$${__value.raw}'
+          urlDisplayLabel: 'View Trace'
 
   - name: Tempo
     type: tempo
@@ -29,15 +31,22 @@ datasources:
     jsonData:
       tracesToLogs:
         datasourceUid: 'loki'
-        tags: ['service_name']
-        mappedTags: [{ key: 'service.name', value: 'service_name' }]
+        tags: ['job', 'container']
+        mappedTags: [{ key: 'service.name', value: 'job' }]
         mapTagNamesEnabled: true
-        spanStartTimeShift: '-1h'
-        spanEndTimeShift: '1h'
+        spanStartTimeShift: '-1m'
+        spanEndTimeShift: '1m'
+        filterByTraceID: true
+        filterBySpanID: false
+        lokiSearch: true
       tracesToMetrics:
         datasourceUid: 'prometheus'
-        tags: [{ key: 'service.name', value: 'service_name' }]
+        tags: [{ key: 'service.name', value: 'job' }]
       serviceMap:
         datasourceUid: 'prometheus'
       nodeGraph:
         enabled: true
+      search:
+        hide: false
+      lokiSearch:
+        datasourceUid: 'loki'
