@@ -160,6 +160,8 @@ services:
       MONGODB_URI: mongodb://demo:demo123@mongodb:27017
       MONGODB_DATABASE: demo
       NATS_URL: nats://nats:4222
+      USER_SERVICE_URL: http://python-user-service:8000
+      INVENTORY_SERVICE_URL: http://go-inventory-service:8002
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
       OTEL_SERVICE_NAME: order-service
       RUST_LOG: info
@@ -186,7 +188,7 @@ services:
       DATABASE_URL: postgresql://demo:demo123@postgres:5432/demo?sslmode=disable
       MONGODB_URI: mongodb://demo:demo123@mongodb:27017
       MONGODB_DATABASE: demo
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+      OTEL_EXPORTER_OTLP_ENDPOINT: tempo:4317
       OTEL_SERVICE_NAME: inventory-service
       LOG_LEVEL: info
     ports:

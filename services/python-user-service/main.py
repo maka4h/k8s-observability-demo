@@ -23,9 +23,11 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+from opentelemetry.propagate import set_global_textmap
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
-# Configure JSON logging with trace context FIRST (before using logger)
-class JSONFormatter(logging.Formatter):
+# Configure JSON logging with trace context
+class TraceContextJsonFormatter(logging.Formatter):
     def format(self, record):
         log_data = {
             'timestamp': self.formatTime(record, self.datefmt),
@@ -42,16 +44,13 @@ class JSONFormatter(logging.Formatter):
         
         return json.dumps(log_data)
 
-handler = logging.StreamHandler()
-handler.setFormatter(JSONFormatter())
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    handlers=[handler]
-)
 logger = logging.getLogger(__name__)
 
 # Initialize OpenTelemetry tracing
 def init_telemetry():
+    # Set global propagator for trace context
+    set_global_textmap(TraceContextTextMapPropagator())
+    
     resource = Resource(attributes={
         "service.name": os.getenv("OTEL_SERVICE_NAME", "user-service"),
     })

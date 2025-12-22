@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -29,6 +30,31 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// Helper function to log with trace context
+func logWithTrace(ctx context.Context, level string, message string, fields ...interface{}) {
+	span := trace.SpanFromContext(ctx)
+	traceID := span.SpanContext().TraceID().String()
+	spanID := span.SpanContext().SpanID().String()
+
+	logData := map[string]interface{}{
+		"timestamp": time.Now().Format(time.RFC3339Nano),
+		"level":     level,
+		"message":   message,
+		"trace_id":  traceID,
+		"span_id":   spanID,
+	}
+
+	// Add additional fields
+	for i := 0; i < len(fields); i += 2 {
+		if i+1 < len(fields) {
+			logData[fmt.Sprintf("%v", fields[i])] = fields[i+1]
+		}
+	}
+
+	jsonLog, _ := json.Marshal(logData)
+	fmt.Println(string(jsonLog))
+}
 
 var (
 	// Prometheus metrics
@@ -290,11 +316,11 @@ func (app *App) listItems(c *gin.Context) {
 // Get inventory item by ID (PostgreSQL)
 func (app *App) getItem(c *gin.Context) {
 	ctx := c.Request.Context()
-	_, span := app.tracer.Start(ctx, "getItem")
+	ctx, span := app.tracer.Start(ctx, "getItem")
 	defer span.End()
 
 	id := c.Param("id")
-	log.Printf("Fetching inventory item: %s", id)
+	logWithTrace(ctx, "INFO", "Fetching inventory item", "item_id", id)
 
 	span.SetAttributes(attribute.String("item.id", id))
 
@@ -311,13 +337,13 @@ func (app *App) getItem(c *gin.Context) {
 	)
 
 	if err == sql.ErrNoRows {
-		log.Printf("Inventory item not found: %s", id)
+		logWithTrace(ctx, "WARN", "Inventory item not found", "item_id", id)
 		c.JSON(http.StatusNotFound, gin.H{"error": "Item not found"})
 		return
 	}
 
 	if err != nil {
-		log.Printf("Error fetching inventory item: %v", err)
+		logWithTrace(ctx, "ERROR", "Error fetching inventory item", "error", err.Error())
 		span.RecordError(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch item"})
 		return
@@ -325,7 +351,7 @@ func (app *App) getItem(c *gin.Context) {
 
 	itemsQueried.Inc()
 	requestsTotal.WithLabelValues("GET", "/api/inventory/:id", "200").Inc()
-	log.Printf("Inventory item retrieved: %d", item.ID)
+	logWithTrace(ctx, "INFO", "Inventory item retrieved", "item_id", item.ID, "product", item.ProductName)
 
 	c.JSON(http.StatusOK, item)
 }

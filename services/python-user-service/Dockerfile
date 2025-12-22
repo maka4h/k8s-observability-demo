@@ -8,9 +8,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY main.py .
+COPY log_config.json .
 
 # Expose port
 EXPOSE 8000
 
-# Run application directly (OpenTelemetry initialized in code)
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run application with JSON logging and no access logs
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--log-config", "log_config.json"]
