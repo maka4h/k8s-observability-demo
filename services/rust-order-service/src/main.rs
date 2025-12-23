@@ -6,7 +6,7 @@ use axum::{
     Json, Router,
 };
 use mongodb::{
-    bson::{doc, oid::ObjectId, DateTime as BsonDateTime},
+    bson::{doc, oid::ObjectId},
     Client, Collection, Database,
 };
 use prometheus::{Encoder, IntCounter, Histogram, TextEncoder, register_int_counter, register_histogram};
@@ -256,7 +256,7 @@ async fn create_order(
     let mut created_order = order;
     created_order.id = Some(order_id);
 
-    // Publish event to NATS
+    // Publish event to NATS with trace context
     if let Some(client) = &state.nats_client {
         let event = serde_json::json!({
             "event": "order.created",
@@ -265,10 +265,17 @@ async fn create_order(
             "timestamp": Utc::now().to_rfc3339(),
         });
         
-        if let Err(e) = client.publish("order.created", event.to_string().into()).await {
+        // Inject trace context into NATS headers
+        let cx = tracing::Span::current().context();
+        let mut headers = async_nats::header::HeaderMap::new();
+        global::get_text_map_propagator(|propagator| {
+            propagator.inject_context(&cx, &mut NatsHeaderInjector(&mut headers));
+        });
+        
+        if let Err(e) = client.publish_with_headers("order.created", headers, event.to_string().into()).await {
             error!("Failed to publish NATS event: {}", e);
         } else {
-            info!("Published order.created event for order {}", order_id);
+            info!("Published order.created event for order {} with trace context", order_id);
         }
     }
 
@@ -290,6 +297,15 @@ impl<'a> Injector for HeaderInjector<'a> {
                 self.0.insert(name, val);
             }
         }
+    }
+}
+
+// Helper to inject trace context into NATS headers
+struct NatsHeaderInjector<'a>(&'a mut async_nats::header::HeaderMap);
+
+impl<'a> Injector for NatsHeaderInjector<'a> {
+    fn set(&mut self, key: &str, value: String) {
+        self.0.insert(key, value.as_str());
     }
 }
 
@@ -399,7 +415,7 @@ async fn create_validated_order(
     let mut created_order = order;
     created_order.id = Some(order_id);
 
-    // Publish event to NATS
+    // Publish event to NATS with trace context
     if let Some(client) = &state.nats_client {
         let event = serde_json::json!({
             "event": "order.created",
@@ -413,10 +429,17 @@ async fn create_validated_order(
             "timestamp": Utc::now().to_rfc3339(),
         });
         
-        if let Err(e) = client.publish("order.created", event.to_string().into()).await {
+        // Inject trace context into NATS headers
+        let cx = tracing::Span::current().context();
+        let mut headers = async_nats::header::HeaderMap::new();
+        global::get_text_map_propagator(|propagator| {
+            propagator.inject_context(&cx, &mut NatsHeaderInjector(&mut headers));
+        });
+        
+        if let Err(e) = client.publish_with_headers("order.created", headers, event.to_string().into()).await {
             error!("Failed to publish NATS event: {}", e);
         } else {
-            info!("Published order.created event for order {}", order_id);
+            info!("Published order.created event for order {} with trace context", order_id);
         }
     }
 
@@ -531,6 +554,61 @@ fn init_tracing() {
         .init();
 }
 
+// NATS consumer for user.created events
+async fn handle_user_created(msg: async_nats::Message) {
+    // Extract trace context from NATS headers
+    use opentelemetry::propagation::Extractor;
+    
+    // Create carrier from NATS headers
+    struct HeaderExtractor<'a>(&'a async_nats::header::HeaderMap);
+    
+    impl<'a> Extractor for HeaderExtractor<'a> {
+        fn get(&self, key: &str) -> Option<&str> {
+            self.0.get(key).map(|v| v.as_ref())
+        }
+        
+        fn keys(&self) -> Vec<&str> {
+            self.0.iter().map(|(k, _)| k.as_ref()).collect()
+        }
+    }
+    
+    let parent_ctx = if let Some(headers) = &msg.headers {
+        info!("Received NATS message with headers: {:?}", headers);
+        global::get_text_map_propagator(|propagator| {
+            propagator.extract(&HeaderExtractor(headers))
+        })
+    } else {
+        warn!("Received NATS message without headers");
+        opentelemetry::Context::current()
+    };
+    
+    // Create span as child of extracted context
+    let span = tracing::info_span!(
+        "handle_user_created",
+        messaging.system = "nats",
+        messaging.destination = "user.created",
+    );
+    
+    // Attach parent context to span
+    span.set_parent(parent_ctx);
+    let _enter = span.enter();
+    
+    // Parse event
+    match serde_json::from_slice::<serde_json::Value>(&msg.payload) {
+        Ok(event) => {
+            info!(
+                user_id = %event.get("user_id").and_then(|v| v.as_str()).unwrap_or("unknown"),
+                event_type = %event.get("event").and_then(|v| v.as_str()).unwrap_or("unknown"),
+                "Received user.created event"
+            );
+            // In a real application, you might update caches, send notifications, etc.
+        }
+        Err(e) => {
+            error!("Failed to parse user event: {}", e);
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize tracing
@@ -562,6 +640,21 @@ async fn main() -> anyhow::Result<()> {
             match async_nats::connect(&nats_url).await {
                 Ok(client) => {
                     info!("Connected to NATS");
+                    
+                    // Subscribe to user.created events
+                    if let Ok(mut subscription) = client.subscribe("user.created").await {
+                        info!("Subscribed to user.created events");
+                        
+                        // Spawn task to handle messages
+                        tokio::spawn(async move {
+                            while let Some(msg) = subscription.next().await {
+                                handle_user_created(msg).await;
+                            }
+                        });
+                    } else {
+                        error!("Failed to subscribe to user.created");
+                    }
+                    
                     Some(client)
                 }
                 Err(e) => {

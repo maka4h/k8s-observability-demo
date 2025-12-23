@@ -202,7 +202,7 @@ async def create_user(user: UserCreate, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(db_user)
         
-        # Publish event to NATS
+        # Publish event to NATS with trace context
         if nc and nc.is_connected:
             try:
                 event = {
@@ -211,8 +211,21 @@ async def create_user(user: UserCreate, db: Session = Depends(get_db)):
                     "email": db_user.email,
                     "timestamp": datetime.utcnow().isoformat()
                 }
-                await nc.publish("user.created", str(event).encode())
-                logger.info(f"Published user.created event for user {db_user.id}")
+                
+                # Inject trace context into NATS headers
+                from opentelemetry import context
+                from opentelemetry.propagate import inject
+                
+                headers = {}
+                inject(headers, context=context.get_current())
+                
+                # Convert headers to NATS header format
+                nats_headers = {}
+                for key, value in headers.items():
+                    nats_headers[key] = value
+                
+                await nc.publish("user.created", json.dumps(event).encode(), headers=nats_headers)
+                logger.info(f"Published user.created event for user {db_user.id} with NATS headers: {nats_headers}")
             except Exception as e:
                 logger.error(f"Failed to publish NATS event: {e}")
         
