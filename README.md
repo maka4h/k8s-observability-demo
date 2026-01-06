@@ -6,39 +6,40 @@ A comprehensive demonstration of observability in Kubernetes with microservices 
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                   Kubernetes Cluster                         │
+│                   Kubernetes Cluster                        │
 ├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐ │
-│  │   Python     │    │     Rust     │    │      Go      │ │
-│  │  User API    │◄──►│   Order API  │◄──►│ Inventory API│ │
-│  │  (FastAPI)   │    │    (Axum)    │    │    (Gin)     │ │
-│  └──────┬───────┘    └──────┬───────┘    └──────┬───────┘ │
+│                                                             │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐.  │
+│  │   Python     │    │     Rust     │    │      Go      │   │
+│  │  User API    │◄──►│   Order API  │◄──►│ Inventory API│   │
+│  │  (FastAPI)   │    │    (Axum)    │    │    (Gin)     │   │
+│  └──────┬───────┘    └──────┬───────┘    └──────┬───────┘   │
 │         │                   │                    │          │
 │         ▼                   ▼                    ▼          │
-│  ┌──────────┐       ┌──────────┐        ┌──────────┐      │
-│  │PostgreSQL│       │ MongoDB  │        │PostgreSQL│      │
-│  └──────────┘       └──────────┘        │ MongoDB  │      │
-│         │                   │            └──────────┘      │
-│         └───────┬───────────┘                              │
+│  ┌──────────┐       ┌──────────┐        ┌──────────┐        │
+│  │PostgreSQL│       │ MongoDB  │        │PostgreSQL│        │
+│  └──────────┘       └──────────┘        │ MongoDB  │        │
+│         │                   │           └──────────┘        │
+│         └───────┬───────────┘                               │
 │                 ▼                                           │
-│           ┌──────────┐                                     │
-│           │   NATS   │                                     │
-│           └──────────┘                                     │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐ │
-│  │         Observability Stack                          │ │
-│  │  Prometheus │ Loki │ Tempo │ Grafana                │ │
-│  └──────────────────────────────────────────────────────┘ │
-│                                                              │
+│           ┌──────────┐                                      │
+│           │   NATS   │                                      │
+│           └──────────┘                                      │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │         Observability Stack                          │   │
+│  │  Prometheus │ Loki │ Tempo │ Grafana                 │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ## Services
 
 ### Python User Service (FastAPI)
+
 - **Port:** 8000
-- **Endpoints:** 
+- **Endpoints:**
   - `GET /api/users` - List users
   - `POST /api/users` - Create user
   - `GET /api/users/{id}` - Get user by ID
@@ -47,6 +48,7 @@ A comprehensive demonstration of observability in Kubernetes with microservices 
 - **Dependencies:** PostgreSQL, NATS
 
 ### Rust Order Service (Axum)
+
 - **Port:** 8001
 - **Endpoints:**
   - `GET /api/orders` - List orders
@@ -57,6 +59,7 @@ A comprehensive demonstration of observability in Kubernetes with microservices 
 - **Dependencies:** MongoDB, NATS
 
 ### Go Inventory Service (Gin)
+
 - **Port:** 8002
 - **Endpoints:**
   - `GET /api/inventory` - List inventory
@@ -71,17 +74,20 @@ A comprehensive demonstration of observability in Kubernetes with microservices 
 All services include **zero-code-change** observability through OpenTelemetry:
 
 ### Metrics (Prometheus)
+
 - HTTP request counts, duration, status codes
 - Database query metrics
 - Message queue metrics
 - Custom business metrics
 
 ### Logs (Loki)
+
 - Structured JSON logging
 - Automatic correlation with traces
 - Log levels: DEBUG, INFO, WARN, ERROR
 
 ### Traces (Tempo)
+
 - Distributed tracing across all services
 - Automatic span creation for HTTP requests
 - Database query spans
@@ -90,6 +96,7 @@ All services include **zero-code-change** observability through OpenTelemetry:
 ## Quick Start
 
 ### Prerequisites
+
 - Docker & Docker Compose
 - kubectl
 - Helm 3
@@ -171,14 +178,15 @@ done
 ### View Observability Data
 
 1. **Grafana Dashboard:** http://localhost:3000
+
    - Default credentials: `admin/admin`
    - Pre-configured dashboards for each service
-
 2. **Prometheus:** http://localhost:9090
+
    - Query metrics directly
    - Example: `http_requests_total{service="user-service"}`
-
 3. **Explore Traces:**
+
    - Go to Grafana → Explore → Select Tempo
    - Search for traces by service or time range
 
@@ -207,6 +215,7 @@ done
 ### ✨ Minimal Code Changes for Observability
 
 All services use OpenTelemetry auto-instrumentation:
+
 - **Python:** `opentelemetry-instrument` wrapper
 - **Rust:** Tracing middleware layer
 - **Go:** Middleware handlers
@@ -216,6 +225,7 @@ No manual span creation needed for basic operations!
 ### 📊 Unified Dashboards
 
 Pre-configured Grafana dashboards showing:
+
 - Service RED metrics (Rate, Errors, Duration)
 - Database connection pools
 - Message queue throughput
@@ -224,6 +234,7 @@ Pre-configured Grafana dashboards showing:
 ### 🔍 Distributed Tracing
 
 See complete request flows:
+
 ```
 User API → PostgreSQL → NATS → Order API → MongoDB
 ```
@@ -247,15 +258,18 @@ LOG_LEVEL=INFO
 ## Troubleshooting
 
 ### No metrics showing up?
+
 - Check ServiceMonitor is created: `kubectl get servicemonitors -n demo`
 - Verify Prometheus targets: `kubectl port-forward -n observability svc/prometheus 9090:9090`
 
 ### No traces in Tempo?
+
 - Verify OTEL_EXPORTER_OTLP_ENDPOINT is correct
 - Check trace sampling rate (might be too low)
 - Review service logs for OTLP export errors
 
 ### Logs missing in Loki?
+
 - Ensure Promtail DaemonSet is running: `kubectl get ds -n observability`
 - Check pod logs are being written to stdout/stderr
 
