@@ -5,20 +5,20 @@ This document explains how telemetry data flows from your services to Grafana. *
 ## Overview Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────────┐
 │                    Microservice (Any of the 3)                   │
-├─────────────────────────────────────────────────────────────────┤
+├──────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐         │
-│  │   Metrics    │  │     Logs     │  │   Traces     │         │
-│  │  (Prometheus │  │  (Structured │  │ (OpenTelemetry│        │
-│  │   client)    │  │     JSON)    │  │    SDK)      │         │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘         │
-│         │                 │                  │                  │
-│    /metrics              stdout            OTLP gRPC           │
-│   endpoint              (JSON logs)        :4317               │
-│         │                 │                  │                  │
-└─────────┼─────────────────┼──────────────────┼──────────────────┘
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐          │
+│  │   Metrics    │  │     Logs     │  │   Traces       │          │
+│  │  (Prometheus │  │  (Structured │  │ (OpenTelemetry │          │
+│  │   client)    │  │     JSON)    │  │    SDK)        │          │
+│  └──────┬───────┘  └──────┬───────┘  └───────┬────────┘          │
+│         │                 │                  │                   │
+│    /metrics              stdout            OTLP gRPC             │
+│   endpoint              (JSON logs)        :4317                 │
+│         │                 │                  │                   │
+└─────────┼─────────────────┼──────────────────┼───────────────────┘
           │                 │                  │
           │ PULL            │ PUSH             │ PUSH
           │ (scrape)        │ (stream)         │ (export)
@@ -31,18 +31,18 @@ This document explains how telemetry data flows from your services to Grafana. *
    │ every 30s   │   │ container   │   │ Receiver    │
    │             │   │ logs        │   │             │
    └─────┬───────┘   └─────┬───────┘   └─────┬───────┘
-         │                 │                  │
-         │ Stores          │ Ships            │ Stores
-         │ time-series     │ to Loki          │ trace spans
-         │                 │                  │
-         ▼                 ▼                  ▼
+         │                 │                 │
+         │ Stores          │ Ships           │ Stores
+         │ time-series     │ to Loki         │ trace spans
+         │                 │                 │
+         ▼                 ▼                 ▼
    ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
    │ Prometheus  │   │    Loki     │   │    Tempo    │
    │  Storage    │   │  Storage    │   │  Storage    │
    └─────┬───────┘   └─────┬───────┘   └─────┬───────┘
-         │                 │                  │
-         │                 │                  │
-         └─────────────────┴──────────────────┘
+         │                 │                 │
+         │                 │                 │
+         └─────────────────┴─────────────────┘
                            │
                            │ Query
                            ▼
@@ -111,11 +111,11 @@ scrape_configs:
     static_configs:
       - targets: ['python-user-service:8000']
     metrics_path: '/metrics'
-    
+  
   - job_name: 'order-service'
     static_configs:
       - targets: ['rust-order-service:8001']
-      
+    
   - job_name: 'inventory-service'
     static_configs:
       - targets: ['go-inventory-service:8002']
@@ -254,20 +254,20 @@ scrape_configs:
   - job_name: kubernetes-pods
     kubernetes_sd_configs:
       - role: pod
-    
+  
     relabel_configs:
       # Extract namespace
       - source_labels: [__meta_kubernetes_namespace]
         target_label: namespace
-      
+    
       # Extract pod name
       - source_labels: [__meta_kubernetes_pod_name]
         target_label: pod
-      
+    
       # Extract container name
       - source_labels: [__meta_kubernetes_pod_container_name]
         target_label: container
-      
+    
       # Extract app label
       - source_labels: [__meta_kubernetes_pod_label_app]
         target_label: app
@@ -276,6 +276,7 @@ scrape_configs:
 **Loki Side** - Storage and indexing:
 
 Loki indexes **only labels** (not log content), making it cost-effective:
+
 - `namespace=demo`
 - `pod=python-user-service-abc123`
 - `container=user-service`
@@ -352,6 +353,7 @@ opentelemetry-instrument uvicorn main:app
 ```
 
 The wrapper automatically:
+
 - Creates spans for all HTTP requests
 - Traces database queries (SQLAlchemy)
 - Captures exceptions
@@ -364,7 +366,7 @@ The wrapper automatically:
 fn init_tracing() {
     let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
         .unwrap_or_else(|_| "http://tempo:4317".to_string());
-    
+  
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_exporter(
@@ -402,19 +404,19 @@ async fn create_order(payload: CreateOrderRequest) -> Result<Order> {
 // Initialize once at startup
 func initTracer(ctx context.Context) (*sdktrace.TracerProvider, error) {
     endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-    
+  
     exporter, err := otlptracegrpc.New(ctx,
         otlptracegrpc.WithEndpoint(endpoint),
         otlptracegrpc.WithInsecure(),
     )
-    
+  
     tp := sdktrace.NewTracerProvider(
         sdktrace.WithBatcher(exporter),
         sdktrace.WithResource(resource.NewWithAttributes(
             semconv.ServiceName("inventory-service"),
         )),
     )
-    
+  
     otel.SetTracerProvider(tp)
     return tp, nil
 }
@@ -427,10 +429,10 @@ router.Use(otelgin.Middleware("inventory-service"))
 func (app *App) getItem(c *gin.Context) {
     ctx, span := app.tracer.Start(c.Request.Context(), "getItem")
     defer span.End()
-    
+  
     // Add custom attributes
     span.SetAttributes(attribute.String("item.id", id))
-    
+  
     // Your business logic
     item, err := db.QueryRow(ctx, query, id)
     if err != nil {
@@ -465,7 +467,7 @@ Service B (Rust Order Service)
     ├─ Sets parent: span001
     │
     └─ Both services export to Tempo
-    
+  
 Result: Single trace with linked spans!
 ```
 
@@ -520,35 +522,36 @@ Result: Single trace with linked spans!
 
 Each telemetry type has fundamentally different characteristics:
 
-| Aspect | Metrics | Logs | Traces |
-|--------|---------|------|--------|
-| **Volume** | Low (aggregated) | High (every event) | Medium (sampled) |
-| **Collection** | PULL (scrape) | PUSH (stream) | PUSH (export) |
-| **Storage** | Time-series DB | Compressed text | Span database |
-| **Query Pattern** | Aggregations | Text search | Trace ID lookup |
-| **Retention** | Weeks/Months | Days/Week | Hours/Days |
-| **Cardinality** | Low (10-100 per service) | Unlimited | Medium |
-| **Index** | All data | Labels only | Trace IDs |
-| **Cost** | Low | Medium | Low (with sampling) |
+| Aspect                  | Metrics                  | Logs               | Traces              |
+| ----------------------- | ------------------------ | ------------------ | ------------------- |
+| **Volume**        | Low (aggregated)         | High (every event) | Medium (sampled)    |
+| **Collection**    | PULL (scrape)            | PUSH (stream)      | PUSH (export)       |
+| **Storage**       | Time-series DB           | Compressed text    | Span database       |
+| **Query Pattern** | Aggregations             | Text search        | Trace ID lookup     |
+| **Retention**     | Weeks/Months             | Days/Week          | Hours/Days          |
+| **Cardinality**   | Low (10-100 per service) | Unlimited          | Medium              |
+| **Index**         | All data                 | Labels only        | Trace IDs           |
+| **Cost**          | Low                      | Medium             | Low (with sampling) |
 
 ### Benefits of Separate Systems
 
 1. **Optimized Storage**
+
    - Prometheus: Efficient time-series compression
    - Loki: Logs stored in chunks, only labels indexed
    - Tempo: Trace-oriented storage with trace ID index
-
 2. **Independent Scaling**
+
    - Scale metrics storage separately from log storage
    - High log volume doesn't affect trace performance
    - Different retention policies per system
-
 3. **Specialized Query Languages**
+
    - **PromQL** for metrics: `rate(http_requests_total[5m])`
    - **LogQL** for logs: `{app="user-service"} |= "error"`
    - **TraceQL** for traces: `{service.name="user-service" && http.status_code=500}`
-
 4. **Collection Method Matches Data Type**
+
    - Metrics: PULL works well (services expose state)
    - Logs: PUSH works well (continuous stream)
    - Traces: PUSH works well (spans need to be sent together)
@@ -604,7 +607,7 @@ datasources:
           matcherRegex: "traceID=(\\w+)"
           name: TraceID
           url: "$${__value.raw}"
-          
+        
   - name: Tempo
     type: tempo
     url: http://tempo:3200
@@ -626,6 +629,7 @@ http_requests_total{method="POST",endpoint="/api/users",status="500"} 1 {trace_i
 ```
 
 **4. Time Correlation**:
+
 - All systems use same timestamps
 - Grafana can show metrics, logs, and traces for same time range
 - Automatically correlates by time + service labels
@@ -633,30 +637,30 @@ http_requests_total{method="POST",endpoint="/api/users",status="500"} 1 {trace_i
 ### Visual Correlation Flow
 
 ```
-┌─────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────┐
 │              Grafana Unified View                    │
-├─────────────────────────────────────────────────────┤
+├──────────────────────────────────────────────────────┤
 │                                                      │
 │  [Metrics Dashboard]                                 │
-│  http_requests_total{status="500"} = 15 ← Spike!   │
+│  http_requests_total{status="500"} = 15 ← Spike!     │
 │         │                                            │
-│         │ Click "View Related Logs"                 │
+│         │ Click "View Related Logs"                  │
 │         ▼                                            │
 │  [Logs View]                                         │
-│  {app="user-service"} |= "error"                    │
-│  2025-12-19 10:30:45 ERROR Database timeout         │
-│    trace_id: "abc123" ← Click this                  │
+│  {app="user-service"} |= "error"                     │
+│  2025-12-19 10:30:45 ERROR Database timeout          │
+│    trace_id: "abc123" ← Click this                   │
 │         │                                            │
 │         │ Jump to Trace                              │
 │         ▼                                            │
 │  [Trace View]                                        │
 │  Trace: abc123                                       │
-│  ├─ POST /api/users (120ms)                         │
-│  │  ├─ INSERT users (45ms)                          │
-│  │  └─ PostgreSQL query (80ms) ← ERROR HERE!       │
-│  └─ NATS publish (5ms)                              │
+│  ├─ POST /api/users (120ms)                          │
+│  │  ├─ INSERT users (45ms)                           │
+│  │  └─ PostgreSQL query (80ms) ← ERROR HERE!         │
+│  └─ NATS publish (5ms)                               │
 │                                                      │
-└─────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -682,6 +686,7 @@ NATS_URL=nats://nats:4222
 ```
 
 **Benefits:**
+
 - ✅ No code changes to modify configuration
 - ✅ Same variables across all languages
 - ✅ Easy to change per environment (dev, staging, prod)
@@ -692,24 +697,28 @@ NATS_URL=nats://nats:4222
 ## Performance and Overhead
 
 ### Metrics (Prometheus)
+
 - **Collection overhead**: ~0.5% CPU per scrape
 - **Service overhead**: Minimal (counters in memory)
 - **Network**: Small (one HTTP GET every 30s)
 - **Storage**: ~1-2 GB per day per 100 services
 
 ### Logs (Loki)
+
 - **Collection overhead**: ~2-5% CPU (Promtail on node)
 - **Service overhead**: None (just stdout)
 - **Network**: Medium (continuous stream)
 - **Storage**: ~500 MB per day per 100 services
 
 ### Traces (Tempo)
+
 - **Collection overhead**: ~1-3% CPU with 10% sampling
 - **Service overhead**: Minimal with batching
 - **Network**: Low with batching and sampling
 - **Storage**: ~2-5 GB per day per 100 services (10% sampling)
 
 ### Total Observability Overhead
+
 - **With proper configuration**: < 5% total overhead
 - **Key optimizations**:
   - Trace sampling (10% in production)
@@ -724,18 +733,19 @@ NATS_URL=nats://nats:4222
 ### Three Separate Pipelines
 
 1. **Metrics (Prometheus)**
+
    - Prometheus **scrapes** `/metrics` endpoints every 30s
    - Services expose metrics in memory
    - Time-series storage optimized for aggregations
    - Query with PromQL
-
 2. **Logs (Loki)**
+
    - Services write to **stdout/stderr**
    - Promtail DaemonSet **collects** from all pods
    - Ships to Loki with labels
    - Query with LogQL
-
 3. **Traces (Tempo)**
+
    - Services **export** spans via OTLP (gRPC/HTTP)
    - OpenTelemetry SDK batches and sends
    - Tempo stores and indexes by trace ID
@@ -744,6 +754,7 @@ NATS_URL=nats://nats:4222
 ### Unified in Grafana
 
 Despite separate pipelines, Grafana provides:
+
 - ✅ Single pane of glass
 - ✅ Correlation between metrics, logs, traces
 - ✅ Jump from metric → log → trace
@@ -766,10 +777,10 @@ This is the **modern observability stack** - three specialized collection pipeli
 
 ## Quick Reference
 
-| Data Type | Collection | Agent | Protocol | Port | Storage | Query |
-|-----------|------------|-------|----------|------|---------|-------|
-| **Metrics** | PULL | None | HTTP | 8000-8002 | Prometheus | PromQL |
-| **Logs** | PUSH | Promtail | HTTP | 3100 | Loki | LogQL |
-| **Traces** | PUSH | None | OTLP/gRPC | 4317 | Tempo | TraceQL |
+| Data Type         | Collection | Agent    | Protocol  | Port      | Storage    | Query   |
+| ----------------- | ---------- | -------- | --------- | --------- | ---------- | ------- |
+| **Metrics** | PULL       | None     | HTTP      | 8000-8002 | Prometheus | PromQL  |
+| **Logs**    | PUSH       | Promtail | HTTP      | 3100      | Loki       | LogQL   |
+| **Traces**  | PUSH       | None     | OTLP/gRPC | 4317      | Tempo      | TraceQL |
 
 All queryable from **Grafana** on port **3000**.
