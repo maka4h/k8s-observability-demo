@@ -6,7 +6,7 @@ Your observability stack now has **full logs and traces integration** working in
 
 ### 1. **Logs Collection** ✅
 
-- ✅ Promtail collecting logs from all Docker containers
+- ✅ OpenTelemetry Collector gathering logs, metrics, and traces from all containers
 - ✅ Logs automatically labeled with `job`, `container`, `namespace`
 - ✅ JSON logs parsed and structured
 
@@ -139,17 +139,17 @@ open http://localhost:3000
 
 ### Logs not appearing?
 
-**Check Promtail:**
+**Check OpenTelemetry Collector:**
 
 ```bash
-docker-compose logs promtail
-docker-compose ps promtail
+docker-compose logs otel-collector
+docker-compose ps otel-collector
 ```
 
 **Verify Docker socket mount:**
 
 ```bash
-docker-compose exec promtail ls -la /var/run/docker.sock
+docker-compose exec otel-collector ls -la /var/run/docker.sock
 ```
 
 ### Trace IDs not linking?
@@ -189,8 +189,8 @@ Should see JSON with `trace_id`:
 
 ## 🎓 Key Files Modified
 
-1. **`promtail-docker-config.yaml`** - New Promtail config for Docker logs
-2. **`docker-compose.yml`** - Updated Promtail to mount Docker socket
+1. **`otel-collector-config.yaml`** - OpenTelemetry Collector configuration for logs, metrics, and traces
+2. **`docker-compose.yml`** - OTel Collector service with Docker socket mount
 3. **`services/python-user-service/main.py`** - Added JSON logging with trace context
 4. **`k8s/observability/grafana-datasources.yaml`** - Enhanced trace ↔ logs correlation
 
@@ -207,7 +207,7 @@ Should see JSON with `trace_id`:
      stdout/stderr               OTLP Protocol
             ↓                           ↓
     ┌─────────────┐            ┌─────────────┐
-    │  Promtail   │            │    Tempo    │
+    │ OTel        │            │    Tempo    │
     │  (Docker)   │            │  (Traces)   │
     └─────────────┘            └─────────────┘
             ↓                           ↓

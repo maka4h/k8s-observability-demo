@@ -42,13 +42,19 @@
 │  ┌──────────────────────────────────────────────────────────────────────────┐   │
 │  │                      Observability Layer                                 │   │
 │  │                                                                          │   │
-│  │  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐                  │   │
-│  │  │  Prometheus  │   │     Loki     │   │    Tempo     │                  │   │
-│  │  │  (Metrics)   │   │    (Logs)    │   │  (Traces)    │                  │   │
-│  │  │  Port: 9090  │   │  Port: 3100  │   │  Port: 3200  │                  │   │
-│  │  └──────┬───────┘   └──────┬───────┘   └──────┬───────┘                  │   │
-│  │         │                  │                  │                          │   │
-│  │         └──────────────────┴──────────────────┘                          │   │
+│  │  ┌──────────────────────────────────────────────────────────────────┐   │   │
+│  │  │                    OpenTelemetry Collector                       │   │   │
+│  │  │  (Unified agent for logs, metrics, traces)                       │   │   │
+│  │  │  Port: 4317 (OTLP gRPC), 4318 (OTLP HTTP)                        │   │   │
+│  │  └───────┬──────────────────┬──────────────────┬────────────────────┘   │   │
+│  │          │                  │                  │                        │   │
+│  │  ┌───────▼──────┐   ┌───────▼──────┐   ┌──────▼───────┐                 │   │
+│  │  │  Prometheus  │   │     Loki     │   │    Tempo     │                 │   │
+│  │  │  (Metrics)   │   │    (Logs)    │   │  (Traces)    │                 │   │
+│  │  │  Port: 9090  │   │  Port: 3100  │   │  Port: 3200  │                 │   │
+│  │  └──────┬───────┘   └──────┬───────┘   └──────┬───────┘                 │   │
+│  │         │                  │                  │                         │   │
+│  │         └──────────────────┴──────────────────┘                         │   │
 │  │                            │                                             │   │
 │  │                            ▼                                             │   │
 │  │                  ┌──────────────────┐                                    │   │
@@ -131,12 +137,29 @@
 │                                     │
 └─────────────────────────────────────┘
 
-Meanwhile, in parallel:
+Meanwhile, all observability data flows through OTel Collector:
+
+┌─────────────────────────────────────────────────────────────┐
+│              OpenTelemetry Collector                        │
+│                                                             │
+│  ┌───────────────┐   ┌───────────────┐   ┌──────────────┐  │
+│  │   Receivers   │   │  Processors   │   │  Exporters   │  │
+│  │               │   │               │   │              │  │
+│  │ • OTLP        │──►│ • Batch       │──►│ • Tempo      │  │
+│  │ • Prometheus  │   │ • Memory Limit│   │ • Loki       │  │
+│  │ • Filelog     │   │ • Enrich      │   │ • Prometheus │  │
+│  └───────────────┘   └───────────────┘   └──────────────┘  │
+│         ▲                                        │          │
+│         │                                        ▼          │
+└─────────┼────────────────────────────────────────┼──────────┘
+          │                                        │
+    Services push                           Backends store
+    traces/metrics                          logs/metrics/traces
 
 ┌──────────────────────────┐      ┌──────────────────────────┐
 │  Prometheus              │      │  Loki                    │
 │                          │      │                          │
-│  Scraping /metrics:      │      │  Collecting logs:        │
+│  Receiving metrics from: │      │  Receiving logs from:    │
 │  ┌────────────────────┐  │      │  ┌────────────────────┐  │
 │  │ http_requests_total│  │      │  │ {"level":"info",   │  │
 │  │   +1               │  │      │  │  "trace_id":"xyz", │  │
@@ -244,17 +267,18 @@ Meanwhile, in parallel:
         │                 │                  │
         │                 │                  │
         ▼                 ▼                  ▼
-   ┌─────────┐       ┌──────────┐      ┌──────────┐
-   │Prometheus│       │Promtail  │      │  Tempo   │
-   │         │       │(log      │      │          │
-   │Scraper  │       │collector)│      │Receiver  │
-   └────┬────┘       └────┬─────┘      └────┬─────┘
-        │                 │                  │
-        │                 ▼                  │
-        │            ┌──────────┐            │
-        │            │   Loki   │            │
-        │            │          │            │
-        │            └────┬─────┘            │
+   ┌─────────────────────────────────────────┐
+   │   OpenTelemetry Collector (Unified)    │
+   │   - OTLP Receiver (traces)              │
+   │   - Prometheus Scraper (metrics)        │
+   │   - Filelog Receiver (logs)             │
+   └────┬──────────────┬──────────────┬─────┘
+        │              │              │
+        ▼              ▼              ▼
+   ┌─────────┐    ┌────────┐    ┌────────┐
+   │Prometheus│    │  Loki  │    │ Tempo  │
+   │ Storage │    │Storage │    │Storage │
+   └────┬────┘    └───┬────┘    └───┬────┘
         │                 │                  │
         └─────────────────┴──────────────────┘
                           │
@@ -309,11 +333,11 @@ Infrastructure:
   └─ NATS 2.10 (message queue)
 
 Observability:
+  ├─ OpenTelemetry Collector (unified agent)
   ├─ Prometheus (metrics storage)
   ├─ Loki (log aggregation)
   ├─ Tempo (trace storage)
-  ├─ Grafana (visualization)
-  └─ Promtail (log collector)
+  └─ Grafana (visualization)
 
 Deployment:
   ├─ Docker & Docker Compose (local)

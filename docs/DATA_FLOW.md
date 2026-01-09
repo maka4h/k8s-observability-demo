@@ -1,6 +1,6 @@
 # Observability Data Flow: Metrics, Logs, and Traces
 
-This document explains how telemetry data flows from your services to Grafana. **There is no single shared collector** - each type of observability data (metrics, logs, traces) has its own specialized pipeline optimized for its unique characteristics.
+This document explains how telemetry data flows from your services to Grafana using **OpenTelemetry Collector** as a unified, vendor-agnostic observability agent.
 
 ## Overview Diagram
 
@@ -20,34 +20,33 @@ This document explains how telemetry data flows from your services to Grafana. *
 │         │                 │                  │                   │
 └─────────┼─────────────────┼──────────────────┼───────────────────┘
           │                 │                  │
-          │ PULL            │ PUSH             │ PUSH
-          │ (scrape)        │ (stream)         │ (export)
           │                 │                  │
-          ▼                 ▼                  ▼
-   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-   │ Prometheus  │   │  Promtail   │   │    Tempo    │
-   │             │   │ (DaemonSet) │   │             │
-   │ Scrapes     │   │ Collects    │   │ OTLP        │
-   │ every 30s   │   │ container   │   │ Receiver    │
-   │             │   │ logs        │   │             │
-   └─────┬───────┘   └─────┬───────┘   └─────┬───────┘
-         │                 │                 │
-         │ Stores          │ Ships           │ Stores
-         │ time-series     │ to Loki         │ trace spans
-         │                 │                 │
-         ▼                 ▼                 ▼
-   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-   │ Prometheus  │   │    Loki     │   │    Tempo    │
-   │  Storage    │   │  Storage    │   │  Storage    │
-   └─────┬───────┘   └─────┬───────┘   └─────┬───────┘
-         │                 │                 │
-         │                 │                 │
-         └─────────────────┴─────────────────┘
-                           │
-                           │ Query
-                           ▼
-                    ┌─────────────┐
-                    │   Grafana   │
+          │                 │                  │ PUSH (OTLP)
+          │                 │                  ▼
+          │                 │          ┌──────────────────────┐
+          │                 │          │  OpenTelemetry       │
+          │                 └─────────►│    Collector         │◄────┐
+          │                            │                      │     │
+          │ PULL (scrape)              │  - OTLP Receiver     │     │
+          └───────────────────────────►│  - Prometheus Scraper│     │
+                                       │  - Filelog Receiver  │     │
+                                       │  - Batch Processor   │     │
+                                       └──────────┬───────────┘     │
+                                                  │                 │
+                                    ┌─────────────┼─────────────┐   │
+                                    │             │             │   │
+                                    ▼             ▼             ▼   │
+                              ┌──────────┐  ┌─────────┐  ┌─────────┐
+                              │Prometheus│  │  Loki   │  │  Tempo  │
+                              │ (Metrics)│  │ (Logs)  │  │(Traces) │
+                              └────┬─────┘  └────┬────┘  └────┬────┘
+                                   │             │            │
+                                   └─────────────┴────────────┘
+                                                 │
+                                                 │ Query
+                                                 ▼
+                                          ┌─────────────┐
+                                          │   Grafana   │
                     │             │
                     │ - Dashboards│
                     │ - Explore   │
@@ -177,11 +176,14 @@ Service writes logs to stdout/stderr
          ↓
    Container runtime captures logs
          ↓
-   [Promtail DaemonSet]
-   Runs on every K8s node
-   Reads container logs from /var/log/pods
+   [OpenTelemetry Collector]
+   Filelog receiver monitors container logs
+   Reads from /var/lib/docker/containers
          ↓
-   Adds labels (namespace, pod, container)
+   Adds labels (service_name, deployment_environment)
+   Processes with batch processor
+         ↓
+   Exports via OTLP HTTP to Loki
          ↓
    [Loki]
    Receives and indexes logs
@@ -240,65 +242,71 @@ log.Printf("Creating inventory item: %s (SKU: %s)", req.ProductName, req.SKU)
 // 2025/12/19 10:30:45 Creating inventory item: Gaming Mouse (SKU: MOUSE-001)
 ```
 
-**Promtail Side** - Automatic collection:
+**OpenTelemetry Collector** - Unified collection:
 
 ```yaml
-# promtail-config.yaml
-server:
-  http_listen_port: 9080
-
-clients:
-  - url: http://loki:3100/loki/api/v1/push
-
-scrape_configs:
-  - job_name: kubernetes-pods
-    kubernetes_sd_configs:
-      - role: pod
+# otel-collector-config.yaml
+receivers:
+  filelog:
+    include:
+      - /var/lib/docker/containers/*/*.log
   
-    relabel_configs:
-      # Extract namespace
-      - source_labels: [__meta_kubernetes_namespace]
-        target_label: namespace
-    
-      # Extract pod name
-      - source_labels: [__meta_kubernetes_pod_name]
-        target_label: pod
-    
-      # Extract container name
-      - source_labels: [__meta_kubernetes_pod_container_name]
-        target_label: container
-    
-      # Extract app label
-      - source_labels: [__meta_kubernetes_pod_label_app]
-        target_label: app
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 10s
+  
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: demo
+        action: insert
+
+exporters:
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+  
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  
+  prometheusremotewrite:
+    endpoint: http://prometheus:9090/api/v1/write
 ```
 
 **Loki Side** - Storage and indexing:
 
 Loki indexes **only labels** (not log content), making it cost-effective:
 
-- `namespace=demo`
-- `pod=python-user-service-abc123`
-- `container=user-service`
-- `app=python-user-service`
+- `service_name=user-service`
+- `deployment_environment=demo`
+- `container_name=python-user-service`
 
 The actual log content is compressed and stored without full-text indexing.
 
 ### Key Characteristics
 
-- ✅ **PUSH model**: Promtail pushes logs to Loki
+- ✅ **PUSH model**: OTel Collector pushes logs to Loki via OTLP
 - ✅ **Stdout/stderr**: Services just log normally (12-factor app pattern)
-- ✅ **DaemonSet**: One Promtail pod per Kubernetes node
-- ✅ **Automatic labels**: Metadata extracted from Kubernetes automatically
+- ✅ **DaemonSet/Sidecar**: Flexible deployment patterns
+- ✅ **Automatic labels**: Metadata extracted from containers
 - ✅ **Structured JSON**: Easy to query and filter
-- ✅ **No agent in container**: Promtail reads from host filesystem
+- ✅ **Unified agent**: Same collector for logs, metrics, and traces
+- ✅ **Vendor-agnostic**: OTLP standard protocol
 - ✅ **Cost-effective**: Only labels indexed (not full log content)
 
 ### Querying in Grafana
 
 ```logql
 # All logs from user service
-{app="python-user-service"}
+{service_name="user-service"}
 
 # Logs containing "error"
 {app="python-user-service"} |= "error"
@@ -703,11 +711,11 @@ NATS_URL=nats://nats:4222
 - **Network**: Small (one HTTP GET every 30s)
 - **Storage**: ~1-2 GB per day per 100 services
 
-### Logs (Loki)
+### Logs (Loki via OpenTelemetry Collector)
 
-- **Collection overhead**: ~2-5% CPU (Promtail on node)
+- **Collection overhead**: ~2-5% CPU (OTel Collector filelog receiver)
 - **Service overhead**: None (just stdout)
-- **Network**: Medium (continuous stream)
+- **Network**: Medium (continuous stream to OTel Collector)
 - **Storage**: ~500 MB per day per 100 services
 
 ### Traces (Tempo)
@@ -730,35 +738,46 @@ NATS_URL=nats://nats:4222
 
 ## Summary
 
-### Three Separate Pipelines
+### Unified Telemetry Pipeline with OpenTelemetry Collector
+
+**OpenTelemetry Collector** acts as a vendor-agnostic, unified agent that:
+
+1. **Collects** logs, metrics, and traces from multiple sources
+2. **Processes** data with batching, filtering, and enrichment
+3. **Exports** to multiple backends simultaneously
 
 1. **Metrics (Prometheus)**
 
-   - Prometheus **scrapes** `/metrics` endpoints every 30s
+   - OTel Collector **scrapes** `/metrics` endpoints every 30s
    - Services expose metrics in memory
+   - Exported via Prometheus Remote Write
    - Time-series storage optimized for aggregations
    - Query with PromQL
+
 2. **Logs (Loki)**
 
-   - Services write to **stdout/stderr**
-   - Promtail DaemonSet **collects** from all pods
-   - Ships to Loki with labels
+   - OTel Collector filelog receiver monitors container logs
+   - Services write to stdout/stderr (no modification needed)
+   - Exported via OTLP HTTP to Loki
+   - Label-based indexing (cost-effective)
    - Query with LogQL
+
 3. **Traces (Tempo)**
 
-   - Services **export** spans via OTLP (gRPC/HTTP)
-   - OpenTelemetry SDK batches and sends
-   - Tempo stores and indexes by trace ID
-   - Query with TraceQL or trace ID
+   - Services send traces via OTLP gRPC to OTel Collector (port 4317)
+   - OTel Collector batches and exports to Tempo
+   - Distributed tracing with context propagation
+   - Query with TraceQL
 
 ### Unified in Grafana
 
-Despite separate pipelines, Grafana provides:
+Despite using a unified collector, Grafana provides:
 
-- ✅ Single pane of glass
+- ✅ Single pane of glass for all telemetry
 - ✅ Correlation between metrics, logs, traces
 - ✅ Jump from metric → log → trace
 - ✅ Time-correlated views
+- ✅ Trace-to-logs linking via trace_id
 - ✅ Service-level correlation
 - ✅ Trace ID linking
 
@@ -771,16 +790,22 @@ Despite separate pipelines, Grafana provides:
 - **Standard protocols** (Prometheus, OTLP, etc.)
 - **Flexible** (can replace any component)
 
-This is the **modern observability stack** - three specialized collection pipelines unified by Grafana! 🚀
+This is the **modern observability stack** using **OpenTelemetry Collector** as a unified, vendor-agnostic agent! 🚀
 
 ---
 
 ## Quick Reference
 
-| Data Type         | Collection | Agent    | Protocol  | Port      | Storage    | Query   |
-| ----------------- | ---------- | -------- | --------- | --------- | ---------- | ------- |
-| **Metrics** | PULL       | None     | HTTP      | 8000-8002 | Prometheus | PromQL  |
-| **Logs**    | PUSH       | Promtail | HTTP      | 3100      | Loki       | LogQL   |
-| **Traces**  | PUSH       | None     | OTLP/gRPC | 4317      | Tempo      | TraceQL |
+| Data Type   | Collection | Agent              | Protocol     | Port      | Storage    | Query   |
+| ----------- | ---------- | ------------------ | ------------ | --------- | ---------- | ------- |
+| **Metrics** | PULL/PUSH  | OTel Collector     | Prometheus   | 8000-8002 | Prometheus | PromQL  |
+| **Logs**    | PUSH       | OTel Collector     | OTLP HTTP    | 3100      | Loki       | LogQL   |
+| **Traces**  | PUSH       | OTel Collector     | OTLP gRPC    | 4317      | Tempo      | TraceQL |
+
+**OpenTelemetry Collector Ports:**
+- 4317: OTLP gRPC (traces from services)
+- 4318: OTLP HTTP 
+- 8888: Internal metrics
+- 8889: Prometheus exporter
 
 All queryable from **Grafana** on port **3000**.

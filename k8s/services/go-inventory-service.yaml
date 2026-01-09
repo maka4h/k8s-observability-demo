@@ -28,7 +28,7 @@ spec:
         - name: MONGODB_DATABASE
           value: "demo"
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
-          value: "tempo.observability.svc.cluster.local:4317"
+          value: "otel-collector.observability.svc.cluster.local:4317"
         - name: OTEL_SERVICE_NAME
           value: "inventory-service"
         - name: GIN_MODE

@@ -4,10 +4,12 @@ This guide shows how to use logs and traces together in Grafana.
 
 ## 🔧 What's Been Configured
 
-### 1. **Promtail** - Log Collection
-- Collects logs from Docker containers via Docker socket
-- Automatically adds labels: `container`, `job`, `namespace`
-- Parses JSON logs and extracts `trace_id` and `span_id`
+### 1. **OpenTelemetry Collector** - Unified Observability Agent
+- Collects logs from Docker containers via Docker socket (filelog receiver)
+- Collects traces via OTLP from services
+- Collects metrics by scraping Prometheus endpoints
+- Automatically adds labels: `service_name`, `deployment_environment`
+- Exports to Loki (logs), Tempo (traces), and Prometheus (metrics)
 
 ### 2. **Python Service** - JSON Logging with Trace Context
 - All logs output as JSON
@@ -165,15 +167,15 @@ sum(rate({job=~".*-service"} | json | level="ERROR" [5m])) by (job)
 
 ### No Logs Appearing?
 
-**Check Promtail is running:**
+**Check OpenTelemetry Collector is running:**
 ```bash
-docker-compose ps promtail
-docker-compose logs promtail
+docker-compose ps otel-collector
+docker-compose logs otel-collector
 ```
 
 **Check Docker socket is mounted:**
 ```bash
-docker-compose exec promtail ls -la /var/run/docker.sock
+docker-compose exec otel-collector ls -la /var/run/docker.sock
 ```
 
 **Verify Loki is receiving logs:**
@@ -216,10 +218,16 @@ curl -X POST http://localhost:8000/api/users \
 
 ## 📚 Advanced: Custom Log Labels
 
-You can add custom labels to logs by modifying the Promtail config:
+You can add custom labels to logs by modifying the OpenTelemetry Collector config:
 
 ```yaml
-# In promtail-docker-config.yaml
+# In otel-collector-config.yaml
+processors:
+  resource:
+    attributes:
+      - key: custom_label
+        value: custom_value
+        action: insert
 pipeline_stages:
   - json:
       expressions:

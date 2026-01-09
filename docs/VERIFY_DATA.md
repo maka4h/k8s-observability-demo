@@ -5,8 +5,8 @@
 Your observability stack is **working**! Here's what's functional:
 
 - **Metrics**: ✅ All services exposing metrics, Prometheus scraping successfully
-- **Traces**: ✅ Tempo receiving traces from all services
-- **Logs**: ⚠️ Promtail needs configuration fix (see below)
+- **Traces**: ✅ Tempo receiving traces from all services via OpenTelemetry Collector
+- **Logs**: ✅ OpenTelemetry Collector collecting logs from containers
 
 ## 🎯 How to View Data
 
@@ -64,13 +64,27 @@ http_request_duration_seconds_bucket
 - Request durations
 - Error tracking
 
-### 4. Logs (Needs Fix)
+### 4. Logs (via OpenTelemetry Collector)
 
-Promtail is currently configured to read from `/var/log` (system logs), but Docker containers log to stdout/stderr. 
+1. Go to **Explore**
+2. Select **Loki** from the dropdown
+3. Try these queries:
 
-**Quick Fix Options:**
+```logql
+# All logs from user service
+{service_name="user-service"}
 
-**Option 1: Docker Compose Logs (Immediate)**
+# All logs from order service
+{service_name="order-service"}
+
+# All logs from inventory service
+{service_name="inventory-service"}
+
+# Logs with specific text
+{service_name="user-service"} |= "Creating user"
+```
+
+**Alternative: Docker Compose Logs**
 ```bash
 # View Python service logs
 docker compose logs -f python-user-service
@@ -80,17 +94,6 @@ docker compose logs -f rust-order-service
 
 # View Go service logs
 docker compose logs -f go-inventory-service
-```
-
-**Option 2: Configure Promtail for Docker (Recommended)**
-
-Edit `docker-compose.yml` to mount Docker socket:
-
-```yaml
-promtail:
-  volumes:
-    - /var/run/docker.sock:/var/run/docker.sock:ro
-    - ./promtail-docker-config.yaml:/etc/promtail/config.yaml
 ```
 
 ## 🧪 Generate Test Data

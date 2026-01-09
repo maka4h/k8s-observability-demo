@@ -275,7 +275,7 @@ Then go to Grafana and:
 - Make sure you've made API calls to generate traces
 
 **No logs appearing?**
-- Wait a few seconds for Promtail to scrape logs
+- Wait a few seconds for OpenTelemetry Collector to collect logs
 - Check if containers are running
 - Try query: `{container_name=~".*"}` to see all logs
 

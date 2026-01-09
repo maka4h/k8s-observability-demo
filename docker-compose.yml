@@ -53,9 +53,7 @@ services:
       - ./tempo-local-config.yaml:/etc/tempo.yaml
       - tempo-data:/tmp/tempo
     ports:
-      - "4317:4317"  # OTLP gRPC
-      - "4318:4318"  # OTLP HTTP
-      - "3200:3200"  # Tempo
+      - "3200:3200"  # Tempo UI (only, OTLP goes through collector)
 
   loki:
     image: grafana/loki:latest
@@ -70,14 +68,23 @@ services:
       timeout: 5s
       retries: 5
 
-  promtail:
-    image: grafana/promtail:latest
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    user: "0"  # Run as root to read Docker logs
     volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./promtail-docker-config.yaml:/etc/promtail/config.yaml
-    command: -config.file=/etc/promtail/config.yaml
+    command: ["--config=/etc/otelcol/config.yaml"]
+    ports:
+      - "4317:4317"  # OTLP gRPC receiver
+      - "4318:4318"  # OTLP HTTP receiver
+      - "8888:8888"  # Prometheus metrics exposed by the collector
+      - "8889:8889"  # Prometheus exporter metrics
     depends_on:
       - loki
+      - tempo
+      - prometheus
 
   prometheus:
     image: prom/prometheus:latest
@@ -89,6 +96,8 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-remote-write-receiver'
+      - '--enable-feature=exemplar-storage'
     ports:
       - "9090:9090"
     healthcheck:
@@ -128,8 +137,8 @@ services:
     environment:
       DATABASE_URL: postgresql://demo:demo123@postgres:5432/demo
       NATS_URL: nats://nats:4222
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4317
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4317
       OTEL_SERVICE_NAME: user-service
       OTEL_TRACES_SAMPLER: parentbased_traceidratio
       OTEL_TRACES_SAMPLER_ARG: "1.0"
@@ -144,7 +153,7 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
-      tempo:
+      otel-collector:
         condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -162,7 +171,7 @@ services:
       NATS_URL: nats://nats:4222
       USER_SERVICE_URL: http://python-user-service:8000
       INVENTORY_SERVICE_URL: http://go-inventory-service:8002
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_SERVICE_NAME: order-service
       RUST_LOG: info
     ports:
@@ -172,7 +181,7 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
-      tempo:
+      otel-collector:
         condition: service_started
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8001/health"]
@@ -188,7 +197,7 @@ services:
       DATABASE_URL: postgresql://demo:demo123@postgres:5432/demo?sslmode=disable
       MONGODB_URI: mongodb://demo:demo123@mongodb:27017
       MONGODB_DATABASE: demo
-      OTEL_EXPORTER_OTLP_ENDPOINT: tempo:4317
+      OTEL_EXPORTER_OTLP_ENDPOINT: otel-collector:4317
       OTEL_SERVICE_NAME: inventory-service
       LOG_LEVEL: info
     ports:
@@ -198,7 +207,7 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
-      tempo:
+      otel-collector:
         condition: service_started
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8002/health"]

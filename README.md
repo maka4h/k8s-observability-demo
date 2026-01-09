@@ -27,8 +27,14 @@ A comprehensive demonstration of observability in Kubernetes with microservices 
 │           └──────────┘                                      │
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │         Observability Stack                          │   │
-│  │  Prometheus │ Loki │ Tempo │ Grafana                 │   │
+│  │              Observability Stack                     │   │
+│  │                                                      │   │
+│  │   Services → OpenTelemetry Collector → Backends     │   │
+│  │               (4317 gRPC, 4318 HTTP)                 │   │
+│  │                     ↓         ↓        ↓             │   │
+│  │            Prometheus    Loki      Tempo             │   │
+│  │                     ↓         ↓        ↓             │   │
+│  │                        Grafana                       │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
@@ -73,18 +79,27 @@ A comprehensive demonstration of observability in Kubernetes with microservices 
 
 All services include **zero-code-change** observability through OpenTelemetry:
 
+### OpenTelemetry Collector
+
+- **Single unified agent** for logs, metrics, and traces
+- Vendor-agnostic data collection and forwarding
+- Buffers data to prevent loss during backend downtime
+- Applies sampling, filtering, and enrichment before storage
+
 ### Metrics (Prometheus)
 
 - HTTP request counts, duration, status codes
 - Database query metrics
 - Message queue metrics
 - Custom business metrics
+- **Collected via:** OTel Collector scraping + OTLP push
 
 ### Logs (Loki)
 
 - Structured JSON logging
-- Automatic correlation with traces
+- Automatic correlation with traces (trace_id/span_id)
 - Log levels: DEBUG, INFO, WARN, ERROR
+- **Collected via:** OTel Collector filelog receiver
 
 ### Traces (Tempo)
 
@@ -92,6 +107,7 @@ All services include **zero-code-change** observability through OpenTelemetry:
 - Automatic span creation for HTTP requests
 - Database query spans
 - NATS message spans
+- **Collected via:** OTel Collector OTLP receiver
 
 ## Quick Start
 
@@ -270,7 +286,7 @@ LOG_LEVEL=INFO
 
 ### Logs missing in Loki?
 
-- Ensure Promtail DaemonSet is running: `kubectl get ds -n observability`
+- Ensure OpenTelemetry Collector DaemonSet is running: `kubectl get ds -n observability`
 - Check pod logs are being written to stdout/stderr
 
 ## Next Steps

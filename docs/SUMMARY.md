@@ -39,9 +39,9 @@ k8s-observability-demo/
 │   │   └── go-inventory-service.yaml
 │   │
 │   └── observability/            # Observability configuration
+│       ├── otel-collector.yaml
 │       ├── tempo-config.yaml
 │       ├── prometheus-config.yaml
-│       ├── promtail-config.yaml
 │       └── grafana-datasources.yaml
 │
 ├── scripts/

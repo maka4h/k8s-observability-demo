@@ -157,10 +157,11 @@ make clean-k8s
 
 ### Observability Components
 
-- **Prometheus**: Scrapes `/metrics` from all services
-- **Loki**: Collects logs via Promtail
-- **Tempo**: Receives traces via OpenTelemetry
-- **Grafana**: Unified dashboard for all data
+- **OpenTelemetry Collector**: Unified agent collecting logs, metrics, and traces
+- **Prometheus**: Stores time-series metrics
+- **Loki**: Stores logs with label-based indexing
+- **Tempo**: Stores distributed traces
+- **Grafana**: Unified dashboard for all observability data
 
 ### Key Features
 
